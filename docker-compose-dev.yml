@@ -1,0 +1,39 @@
+version: '3'
+services:
+  rps-proxy:
+    container_name: rps-proxy
+    image: httpd:2.4.54
+    volumes:
+      - ./config/apache/apache.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./config/apache/vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
+      # assumes the certificates are generated locally first
+      - ./certs/machine.pem:/opt/machine.pem:ro
+      # here goes the local CA certificate as generated in ivis-core/certs/remote/ca folder
+      - ./certs/ca.cert:/opt/ca.cert:ro
+      - ./certs/svr.pem:/opt/svr.pem:ro
+      - ./certs/svr.key:/opt/svr.key:ro
+    networks:
+      ivis-containerized_ivis-net:
+        aliases:
+          - thepool
+
+  rps:
+    restart: always
+    build:
+      context: ./
+      dockerfile: ./Dockerfile-dev
+    volumes:
+      - ./src:/opt/ivis-rps/src
+      - ./config:/opt/ivis-rps/config
+      - ./cert:/opt/ivis-rps/cert
+    container_name: rps
+    ports:
+      - "10000:10000"
+    networks:
+      ivis-containerized_ivis-net:
+        aliases: 
+          - thescheduler
+
+networks:
+  ivis-containerized_ivis-net:
+    external: true

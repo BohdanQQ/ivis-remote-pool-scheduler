@@ -1,0 +1,18 @@
+rps:
+  port: 10000
+
+  useLocalCA: true
+  caPath: /opt/ca.cert
+  clientServerCertPath: /opt/cert.pem
+  certKeyPath: /opt/cert.key
+
+  peerIPs: ['rje']
+  peerRJRPort: 9088
+
+ivis-core:
+  trusted: 
+    urlBase: trusted.ivis
+    port: 443
+  sandbox: 
+    urlBase: sbox.ivis
+    port: 443
