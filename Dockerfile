@@ -6,4 +6,4 @@ COPY package*.json ./
 RUN npm install
 
 COPY . /opt/ivis-rps
-ENTRYPOINT [ "./setup/docker-entry.sh", "dev" ]
+ENTRYPOINT [ "./setup/docker-entry.sh"]
