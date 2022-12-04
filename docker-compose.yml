@@ -21,6 +21,7 @@ services:
     build:
       context: ./
       dockerfile: ./Dockerfile
+      network: host
     volumes:
       - ./config:/opt/ivis-rps/config
     ports:

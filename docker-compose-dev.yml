@@ -22,6 +22,7 @@ services:
     build:
       context: ./
       dockerfile: ./Dockerfile-dev
+      network: host
     volumes:
       - ./src:/opt/ivis-rps/src
       - ./config:/opt/ivis-rps/config
