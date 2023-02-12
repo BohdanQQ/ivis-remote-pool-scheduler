@@ -2,7 +2,7 @@ const scheduler = require('../lib/scheduler-process');
 const log = require('../lib/log').getLogger('rjr-interface');
 
 function isResponseOk(response) {
-    return response.data !== undefined && typeof response.status === 'number' ;
+    return response.data !== undefined && typeof response.status === 'number';
 }
 
 async function commonParseProxyCheck(request, proxyFn) {
@@ -12,22 +12,22 @@ async function commonParseProxyCheck(request, proxyFn) {
     if (!isResponseOk(schedulerResponse)) {
         return {
             success: false,
-            schedulerResponse
+            schedulerResponse,
         };
     }
     return {
         success: true,
-        schedulerResponse
+        schedulerResponse,
     };
 }
 
 async function proxyWith(request, response, proxyFn) {
     const { success, schedulerResponse } = await commonParseProxyCheck(request, proxyFn);
     if (!success) {
-        log.error("Scheduler responded in an unexpected way:", schedulerResponse);
+        log.error('Scheduler responded in an unexpected way:', schedulerResponse);
         response.status(503);
         response.json({
-            error: "Pool scheduler responded in an unexpected way"
+            error: 'Pool scheduler responded in an unexpected way',
         });
         return;
     }
@@ -53,5 +53,5 @@ async function stopRun(request, response) {
 }
 
 module.exports = {
-    runStatus, buildAndRun, removeRun, stopRun
-}
+    runStatus, buildAndRun, removeRun, stopRun,
+};

@@ -1,6 +1,6 @@
 const config = require('./lib/config');
 const appBuild = require('./app-build');
-const log = require('./lib/log').getLogger("main");
+const log = require('./lib/log').getLogger('main');
 
 async function main() {
     const app = appBuild();

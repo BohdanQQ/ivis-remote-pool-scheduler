@@ -1,9 +1,18 @@
 env:
+  browser: true
   commonjs: true
   es2021: true
-  node: true
 extends:
-  - airbnb-base
+  - airbnb
+  - eslint:recommended
+overrides: []
 parserOptions:
   ecmaVersion: latest
-rules: {}
+rules: {
+  "indent": ["error", 4],
+  "max-len": 0,
+  "no-return-await": 0,
+  "no-await-in-loop": 0,
+  "no-use-before-define": 1,
+  "max-classes-per-file": 0
+}

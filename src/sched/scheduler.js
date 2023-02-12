@@ -1,22 +1,39 @@
-const log = require('../lib/log').getLogger('scheduler');
 const { default: axios } = require('axios');
+const log = require('../lib/log').getLogger('scheduler');
 const config = require('../lib/config');
 const ProxyRequestTypes = require('../lib/proxy-request-types');
+
+const { peerRJRPort } = config.rps;
+const { peerIPs } = config.rps;
+
+// Map<number, string> # id -> IP
+const runIdToPeerIP = new Map();
+// Map<string, number> # IP -> number of assigned job runs
+const peerIPToNrOfAssignedRuns = new Map();
+
+if (peerIPs.length === 0) {
+    throw new Error("Asserting 'size of pool is >0' failed! 0 Peer IPs configured");
+}
+
+peerIPs.forEach((ip) => {
+    peerIPToNrOfAssignedRuns.set(ip, 0);
+});
 
 process.on('message', handleRequest);
 
 function sendResponseToId(id, response) {
     process.send({
         id,
-        payload: response
+        payload: response,
     });
 }
 
 function createErrorResponse(status, error) {
     return {
-        status, data: {
-            error: error instanceof Error ? error.message : error
-        }
+        status,
+        data: {
+            error: error instanceof Error ? error.message : error,
+        },
     };
 }
 
@@ -30,23 +47,27 @@ function proxyTypeExists(proxyType) {
 
 function getProxyResolverByProxyType(proxyType) {
     switch (proxyType) {
-        case ProxyRequestTypes.removeRun: return proxyRemoveRun;
-        case ProxyRequestTypes.stop: return proxyStopRun;
-        case ProxyRequestTypes.buildRun: return proxyStartRun;
-        case ProxyRequestTypes.status: return proxyGetRunStatus;
-        default:
-            throw new Error(`Unknown proxy type ${proxyType}`);
+    case ProxyRequestTypes.removeRun: return proxyRemoveRun;
+    case ProxyRequestTypes.stop: return proxyStopRun;
+    case ProxyRequestTypes.buildRun: return proxyStartRun;
+    case ProxyRequestTypes.status: return proxyGetRunStatus;
+    default:
+        throw new Error(`Unknown proxy type ${proxyType}`);
     }
 }
 
 async function handleRequest(request) {
-    const sendResponse = (response) => sendResponseToId(id, response);
+    // request should always contain an id...
+    // otherwise error is logged and the request/response communication NEEDS to be fixed
+    const sendResponse = (response) => sendResponseToId(request.id, response);
     if (!isRequestCorrectFormat(request)) {
         log.error('Invalid request format: ', request);
         if (request.id) sendResponse(createErrorResponse(400, 'Invalid request format received by scheduler process'));
         return;
     }
-    const { id, payload, proxyType, runId } = request;
+    const {
+        payload, proxyType, runId,
+    } = request;
 
     if (!proxyTypeExists(proxyType)) {
         sendResponse(createErrorResponse(400, `Invalid proxy type: ${proxyType}`));
@@ -62,10 +83,9 @@ async function handleRequest(request) {
         const response = await resolver(runId, peerIp, payload);
         sendResponse({
             status: response.status,
-            data: response.data
+            data: response.data,
         });
-    }
-    catch (error) {
+    } catch (error) {
         log.error(error);
         sendResponse(createErrorResponse(503, error));
     }
@@ -73,43 +93,34 @@ async function handleRequest(request) {
 
 const httpClient = axios.create();
 const methodResolvers = {
-    'GET': httpClient.get,
-    'POST': httpClient.post,
-    'DELETE': httpClient.delete
+    GET: httpClient.get,
+    POST: httpClient.post,
+    DELETE: httpClient.delete,
 };
 
 const RJRTargetGetters = {
-    [ProxyRequestTypes.buildRun]: (runId) => {
-        return {
-            path: `/run/${runId}`,
-            method: 'POST'
-        };
-    },
-    [ProxyRequestTypes.stop]: (runId) => {
-        return {
-            path: `/run/${runId}/stop`,
-            method: 'POST'
-        };
-    },
-    [ProxyRequestTypes.removeRun]: (runId) => {
-        return {
-            path: `/run/${runId}`,
-            method: 'DELETE'
-        };
-    },
-    [ProxyRequestTypes.status]: (runId) => {
-        return {
-            path: `/run/${runId}`,
-            method: 'GET'
-        };
-    },
+    [ProxyRequestTypes.buildRun]: (runId) => ({
+        path: `/run/${runId}`,
+        method: 'POST',
+    }),
+    [ProxyRequestTypes.stop]: (runId) => ({
+        path: `/run/${runId}/stop`,
+        method: 'POST',
+    }),
+    [ProxyRequestTypes.removeRun]: (runId) => ({
+        path: `/run/${runId}`,
+        method: 'DELETE',
+    }),
+    [ProxyRequestTypes.status]: (runId) => ({
+        path: `/run/${runId}`,
+        method: 'GET',
+    }),
 };
-
 
 async function proxyRemoveRun(runId, peerIP, requestBody) {
     const target = RJRTargetGetters[ProxyRequestTypes.removeRun](runId);
     const peerResponse = await proxyWithTarget(peerIP, target, requestBody);
-    const status = peerResponse.status;
+    const { status } = peerResponse;
 
     if (status === 200) {
         try {
@@ -117,14 +128,11 @@ async function proxyRemoveRun(runId, peerIP, requestBody) {
         } catch (e) {
             log.error(e);
         }
-    }
-    else if (status === 404) {
+    } else if (status === 404) {
         log.error(`[REMOVE RUN] Run ${runId} was not found on the corresponding peer.`);
-    }
-    else if (status === 503) {
+    } else if (status === 503) {
         log.error(`[REMOVE RUN] Peer could not remove run: ${peerResponse.data.message}`);
-    }
-    else {
+    } else {
         log.error(`[REMOVE RUN] Proxy request resolved with status: ${status}`);
     }
 
@@ -134,12 +142,11 @@ async function proxyRemoveRun(runId, peerIP, requestBody) {
 async function proxyGetRunStatus(runId, peerIP, requestBody) {
     const target = RJRTargetGetters[ProxyRequestTypes.status](runId);
     const peerResponse = await proxyWithTarget(peerIP, target, requestBody);
-    const status = peerResponse.status;
+    const { status } = peerResponse;
 
     if (status === 404) {
         log.error(`[GET STATUS] Run ${runId} was not found on the corresponding peer.`);
-    }
-    else if (status !== 200) {
+    } else if (status !== 200) {
         log.error(`[GET STATUS] Proxy request resolved with status: ${status}`);
     }
     return peerResponse;
@@ -154,13 +161,12 @@ async function proxyStartRun(runId, peerIP, requestBody) {
     }
     peerIP = runIdToPeerIP.get(runId);
     const target = RJRTargetGetters[ProxyRequestTypes.buildRun](runId);
-    let peerResponse = await proxyWithTarget(peerIP, target, requestBody);
-    const status = peerResponse.status;
+    const peerResponse = await proxyWithTarget(peerIP, target, requestBody);
+    const { status } = peerResponse;
 
     if (status === 503) {
         log.error(`[START RUN] Peer could not start run: ${peerResponse.data.message}`);
-    }
-    else if (status !== 200) {
+    } else if (status !== 200) {
         log.error(`[START RUN] Proxy request resolved with status: ${status}`);
     }
 
@@ -170,15 +176,13 @@ async function proxyStartRun(runId, peerIP, requestBody) {
 async function proxyStopRun(runId, peerIP, requestBody) {
     const target = RJRTargetGetters[ProxyRequestTypes.stop](runId);
     const peerResponse = await proxyWithTarget(peerIP, target, requestBody);
-    const status = peerResponse.status;
+    const { status } = peerResponse;
 
     if (status === 404) {
         log.error(`[STOP RUN] Run ${runId} was not found on the corresponding peer.`);
-    }
-    else if (status === 503) {
+    } else if (status === 503) {
         log.error(`[STOP RUN] Peer could stop run: ${peerResponse.data.message}`);
-    }
-    else if (status !== 200) {
+    } else if (status !== 200) {
         log.error(`[STOP RUN] Proxy request resolved with status: ${status}`);
     }
 
@@ -187,19 +191,11 @@ async function proxyStopRun(runId, peerIP, requestBody) {
 
 async function proxyWithTarget(peerIp, { path, method }, requestBody) {
     if (method === 'POST') {
-        return await methodResolvers['POST'](`http://${peerIp}:${config.rps.peerRJRPort}${path}`, requestBody);
+        return await methodResolvers.POST(`http://${peerIp}:${peerRJRPort}${path}`, requestBody);
     }
-    else { // GET, DELETE
-        return await methodResolvers[method](`http://${peerIp}:${config.rps.peerRJRPort}${path}`);
-    }
+    // GET, DELETE
+    return await methodResolvers[method](`http://${peerIp}:${peerRJRPort}${path}`);
 }
-
-
-
-// Map<number, string> # id -> IP
-let runIdToPeerIP = new Map();
-// Map<string, number> # IP -> number of assigned job runs
-let peerIPToNrOfAssignedRuns = new Map();
 
 function modifyAssignedRuns(peerIP, mutator) {
     const currentVal = peerIPToNrOfAssignedRuns.get(peerIP);
@@ -219,75 +215,11 @@ function incrementAssignedRuns(peerIP) {
 function decrementAssignedRuns(peerIP) {
     if (!modifyAssignedRuns(peerIP, (x) => {
         if (x <= 0) {
-            log.warn("Run Count decrement on non-positive value!!!");
+            log.warn('Run Count decrement on non-positive value!!!');
         }
-        return x - 1
+        return x - 1;
     })) {
         log.warn(`Run Count decrement failed: Peer with the IP ${peerIP} was not found!`);
-    }
-}
-
-
-const peerRJRPort = config.rps.peerRJRPort;
-const peerIPs = config.rps.peerIPs;
-
-if (peerIPs.length === 0) {
-    throw new Error("Asserting 'size of pool is >0' failed! 0 Peer IPs configured");
-}
-
-peerIPs.forEach(ip => {
-    peerIPToNrOfAssignedRuns.set(ip, 0);
-});
-
-// TODO use
-async function tryResolveRunId(runId) {
-
-    const resolveIdOnPeer = async (peerIP) => {
-        try {
-            const response = await httpClient.get(`${peerIP}:${peerRJRPort}${RJRTargetGetters[ProxyRequestTypes.status](runId)}`);
-            if (response.status === 200) {
-                return {
-                    idResolved: true,
-                    ip: peerIP
-                };
-            }
-            else if (response.status === 404) {
-                return {
-                    idResolved: false,
-                    ip: peerIP
-                }
-            } else {
-                const message = `Unexpected response when resolving runID ${runId} on peer ${peerIP}`;
-                log.error(message, response);
-                throw new Error(`${message}: ${response.status}: ${response.statusText}`);
-            }
-        }
-        catch (e) {
-            const message = `Unexpected exception when resolving runID ${runId} on peer ${peerIP}`;
-            log.error(message, `:`, e);
-            throw new Error(`${message}: ${response.status}: ${response.statusText}`);
-        }
-    };
-    // TODO: decide what to do about this...
-    // preferably N retries which "should be enough"
-    let errorEncoutnered = false;
-    const correspondingPeers = await Promise.all(peerIPs.map((ip) => resolveIdOnPeer(ip)))
-        .catch((e) => {
-            errorEncoutnered = true;
-            return [];
-        })
-        .then(resultArr => resultArr.filter((x) => x.idResolved));
-    if (correspondingPeers.length === 1) {
-        return correspondingPeers[0].ip;
-    }
-    else if (errorEncoutnered) {
-        // ugly, should force a retry
-        // this retry however spams all peers instead of just the "unreachable/faulty" ones
-        // move the retrying into the resolveIdOnPeer fn 
-        throw new Error("Unable to verify runID due to unexpected error");
-    }
-    else {
-        return null;
     }
 }
 
@@ -295,21 +227,21 @@ async function tryResolveRunId(runId) {
  * @returns {string} IP of the most suitable peer to handle a job run
  */
 function getPeerForRunScheduling() {
-    const { ip } = peerIPs.reduce(({ ip: oldIP, count }, ip) => {
-        const runCount = peerIPToNrOfAssignedRuns.get(ip);
+    const { ip } = peerIPs.reduce(({ ip: oldIP, count }, ipNow) => {
+        const runCount = peerIPToNrOfAssignedRuns.get(ipNow);
         if (runCount < count) {
             return {
                 ip,
-                count: runCount
+                count: runCount,
             };
         }
         return {
             ip: oldIP,
-            count
+            count,
         };
     }, { ip: null, count: Number.MAX_SAFE_INTEGER });
 
-    // relies on |peerIPs| > 0 
+    // relies on |peerIPs| > 0
     return ip === null ? peerIPs[0] : ip;
 }
 
@@ -321,18 +253,17 @@ function scheduleJobRunInternally(runId) {
 
     runIdToPeerIP.set(runId, peerIP);
     incrementAssignedRuns(peerIP);
-    log.info("Scheduled run ", runId, " into the state:\n", runIdToPeerIP, "\nAssigned runs: ", peerIPToNrOfAssignedRuns);
+    log.info('Scheduled run ', runId, ' into the state:\n', runIdToPeerIP, '\nAssigned runs: ', peerIPToNrOfAssignedRuns);
 }
 
 function registerRunTerminationInternally(runId) {
-
     const peerIP = runIdToPeerIP.get(runId);
     if (peerIP === undefined) {
         throw new Error(`RunID ${runId} has no peer assigned!`);
     }
     runIdToPeerIP.delete(runId);
     decrementAssignedRuns(peerIP);
-    log.info("Run termination request processed for", runId, " into the state:\n", runIdToPeerIP, "\nAssigned runs: ", peerIPToNrOfAssignedRuns);
+    log.info('Run termination request processed for', runId, ' into the state:\n', runIdToPeerIP, '\nAssigned runs: ', peerIPToNrOfAssignedRuns);
 }
 
 log.info('Scheduler process has started');

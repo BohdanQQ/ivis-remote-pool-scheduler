@@ -1,7 +1,7 @@
 const { fork } = require('child_process');
+const events = require('events');
 const ProxyRequestTypes = require('./proxy-request-types');
 const log = require('./log').getLogger('scheduler-process');
-const events = require('events');
 
 const workerSource = './src/sched/scheduler.js';
 const workerProcess = fork(workerSource);
@@ -22,7 +22,7 @@ workerProcess.on('message', (message) => {
 
 function waitForWorkerResponseWithTimeout(id, timeoutSecs) {
     return new Promise((resolve, reject) => {
-        let rejectionTimeout = setTimeout(() => {
+        const rejectionTimeout = setTimeout(() => {
             reject(new Error(`No response received after ${timeoutSecs} seconds`));
         }, timeoutSecs * 1000);
         emitter.once(id, (messagePayload) => {
@@ -37,7 +37,7 @@ function freeRequestId(id) {
 }
 
 function randomString(length) {
-    const alphabet = "ABCDEFGHIJKLMOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890!@#$%^&*()-=_+";
+    const alphabet = 'ABCDEFGHIJKLMOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890!@#$%^&*()-=_+';
 
     let result = '';
     for (let index = 0; index < length; index++) {
@@ -55,13 +55,24 @@ function generateRequestId() {
     return id;
 }
 
-function createMessage(id, requestBody, proxyType, runId) {
-    return {
-        id,
-        payload: requestBody,
-        proxyType,
-        runId
-    };
+/**
+ * Sends a message to the scheduler process, rejecting on error
+ */
+function promiseSend(proxyType, requestId, payload, runId) {
+    return new Promise((resolve, reject) => {
+        workerProcess.send({
+            proxyType,
+            id: requestId,
+            payload,
+            runId,
+        }, (error) => {
+            if (error === null) {
+                resolve();
+            } else {
+                reject(error);
+            }
+        });
+    });
 }
 
 /** proxies the request to the scheduler process, resolves/rejects on scheduler response/error (or timeout) */
@@ -74,29 +85,8 @@ function proxyRequest(request, proxyType, runId) {
 }
 
 /**
- * Sends a message to the scheduler process, rejecting on error
- */
-function promiseSend(proxyType, requestId, payload, runId) {
-    return new Promise((resolve, reject) => {
-        workerProcess.send({
-            proxyType,
-            id: requestId,
-            payload,
-            runId
-        }, (error) => {
-            if (error === null) {
-                resolve();
-            } else {
-                reject(error);
-            }
-        });
-    });
-}
-
-/**
- * 
- * @param {Object} requestBody 
- * @param {Number} runId 
+ * @param {Object} requestBody
+ * @param {Number} runId
  * @returns {Promise< { status: Number, data: Object } >}
  */
 function proxyRunBuild(requestBody, runId) {
@@ -105,9 +95,8 @@ function proxyRunBuild(requestBody, runId) {
 }
 
 /**
- * 
- * @param {Object} requestBody 
- * @param {Number} runId 
+ * @param {Object} requestBody
+ * @param {Number} runId
  * @returns {Promise< { status: Number, data: Object } >}
  */
 function proxyStop(requestBody, runId) {
@@ -116,9 +105,8 @@ function proxyStop(requestBody, runId) {
 }
 
 /**
- * 
- * @param {Object} requestBody 
- * @param {Number} runId 
+ * @param {Object} requestBody
+ * @param {Number} runId
  * @returns {Promise< { status: Number, data: Object } >}
  */
 function proxyStatus(requestBody, runId) {
@@ -127,9 +115,8 @@ function proxyStatus(requestBody, runId) {
 }
 
 /**
- * 
- * @param {Object} requestBody 
- * @param {Number} runId 
+ * @param {Object} requestBody
+ * @param {Number} runId
  * @returns {Promise< { status: Number, data: Object } >}
  */
 function proxyRemoveRun(requestBody, runId) {
@@ -138,5 +125,5 @@ function proxyRemoveRun(requestBody, runId) {
 }
 
 module.exports = {
-    proxyRunBuild, proxyStop, proxyStatus, proxyRemoveRun
+    proxyRunBuild, proxyStop, proxyStatus, proxyRemoveRun,
 };
