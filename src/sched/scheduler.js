@@ -231,7 +231,7 @@ function getPeerForRunScheduling() {
         const runCount = peerIPToNrOfAssignedRuns.get(ipNow);
         if (runCount < count) {
             return {
-                ip,
+                ipNow,
                 count: runCount,
             };
         }
