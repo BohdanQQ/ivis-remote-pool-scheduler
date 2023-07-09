@@ -1,3 +1,4 @@
+const { broadcastRemoveTask } = require('../lib/broadcast');
 const scheduler = require('../lib/scheduler-process');
 const log = require('../lib/log').getLogger('rjr-interface');
 
@@ -52,6 +53,10 @@ async function stopRun(request, response) {
     await proxyWith(request, response, scheduler.proxyStop);
 }
 
+async function removeTask(request, response) {
+    await broadcastRemoveTask(request, response);
+}
+
 module.exports = {
-    runStatus, buildAndRun, removeRun, stopRun,
+    runStatus, buildAndRun, removeRun, stopRun, removeTask,
 };
