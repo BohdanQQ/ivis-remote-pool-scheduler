@@ -1,6 +1,6 @@
 const { default: axios } = require('axios');
 const config = require('./config');
-const log = require('./log');
+const log = require('./log').getLogger('broadcast');
 
 async function broadcastRemoveTask(request, response) {
     if (!request.params.task_id) {
@@ -11,7 +11,7 @@ async function broadcastRemoveTask(request, response) {
 
     const taskId = request.params.task_id;
 
-    const responses = (await Promise.all(config.rps.peerIPs.map((ip) => axios.delete(`http://${ip}:${config.peerRJRPort}/task/${taskId}`, {
+    const responses = (await Promise.all(config.rps.peerIPs.map((ip) => axios.delete(`http://${ip}:${config.rps.peerRJRPort}/task/${taskId}`, {
         validateStatus() {
             return true; // Resolve all responses
         },
