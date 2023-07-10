@@ -23,6 +23,7 @@ async function broadcastRemoveTask(request, response) {
         log.log(`got response index: ${idxOfSuccess}`);
         response.status(responseTouse.status);
         response.json(responseTouse.data);
+        return;
     }
     response.status(503);
     response.send({
